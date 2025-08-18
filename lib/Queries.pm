@@ -98,7 +98,11 @@ sub get_item_detail_sql {
     chkindate.lastcheckin,
     duedate.due,
     COALESCE(ytd.ytdcirccount, 0) as ytd_circ_count,
-    COALESCE(circcount.tcirccount, 0) as circ_count
+    COALESCE(circcount.tcirccount, 0) as circ_count,
+    ac.status_changed_time as last_status_date,
+    ac.edit_date as last_update_date,
+    invdate.last_inventory_date as last_inventory_date
+    
     FROM
     asset.copy ac
     JOIN asset.call_number acn ON (acn.id=ac.call_number )
@@ -141,6 +145,11 @@ sub get_item_detail_sql {
         FROM action.all_circulation acirc2
         WHERE acirc2.target_copy=ac.id
     ) circcount ON (1=1)
+    LEFT JOIN lateral (
+    SELECT MAX(inventory_date) AS last_inventory_date
+    FROM asset.copy_inventory
+    WHERE copy = ac.id
+	) invdate ON (1=1)
     WHERE ac.id IN (:id_list)
     AND (ac.edit_date > ? OR ac.status_changed_time > ?)
     };
