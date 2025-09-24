@@ -162,7 +162,7 @@ my @items = get_data(
     get_item_detail_sql(),
     $full ? ($very_old_date, $very_old_date) : ($run_date_filter, $run_date_filter)
 );
-my $item_out_file = write_data_to_file("${prefix}_items_${fdate}_${suffix}", \@items, [qw/itemid barcode isbn upc bibid collection_code mattype branch_location owning_location call_number shelf_location create_date status last_checkout last_checkin due_date ytd_circ_count circ_count/], $conf->{tempdir});
+my $item_out_file = write_data_to_file("${prefix}_items_${fdate}_${suffix}", \@items, [qw/itemid barcode isbn upc bibid collection_code mattype branch_location owning_location call_number shelf_location create_date status last_checkout last_checkin due_date ytd_circ_count circ_count last_status_date last_update_date last_inventory_date/], $conf->{tempdir});
 
 # Process Circs
 my @circs = get_data(
