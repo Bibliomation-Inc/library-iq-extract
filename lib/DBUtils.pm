@@ -88,14 +88,46 @@ sub chunked_ids {
 sub fetch_data_by_ids {
     my ($dbh, $id_chunk, $query, @extra_params) = @_;
     
-    # Construct the placeholders for the ID list
-    my $placeholders = join(',', ('?') x @$id_chunk);
+    my $occurrences = () = $query =~ /:id_list/g;   # how many times :id_list appears
+    my $ids_in_chunk = scalar @$id_chunk;
+
+    my $placeholders = join(',', ('?') x $ids_in_chunk);
     my $sql = $query;
-    # Replace EVERY occurrence of :id_list (some queries use it multiple times, e.g. unfilled holds UNION)
     $sql =~ s/:id_list/$placeholders/g;
 
+    # Replicate IDs per occurrence
+    my @bind_ids;
+    if ($occurrences > 1) {
+        for (1 .. $occurrences) {
+            push @bind_ids, @$id_chunk;
+        }
+    } else {
+        @bind_ids = @$id_chunk;
+    }
+
+    my @bind_params = (@bind_ids, @extra_params);
+
+    # Placeholder math / diagnostics
+    my $total_placeholders_in_sql = () = $sql =~ /\?/g;
+    my $expected_id_placeholders  = $ids_in_chunk * ($occurrences || 1);
+    my $expected_extra            = $total_placeholders_in_sql - $expected_id_placeholders;
+    my $extra_params_supplied     = scalar @extra_params;
+
+    logmsg("DEBUG",
+        "fetch_data_by_ids: chunk_ids=$ids_in_chunk occurrences=$occurrences "
+        . "id_placeholders=$expected_id_placeholders total_placeholders_in_sql=$total_placeholders_in_sql "
+        . "expected_extra_placeholders=$expected_extra extra_params_supplied=$extra_params_supplied "
+        . "total_bind_params=" . scalar(@bind_params)
+    );
+
+    if ($expected_extra != $extra_params_supplied) {
+        logmsg("DEBUG",
+            "Placeholder mismatch diagnostic: expected $expected_extra extra param(s) but got $extra_params_supplied"
+        );
+    }
+
     my $sth = $dbh->prepare($sql);
-    $sth->execute(@$id_chunk, @extra_params);
+    $sth->execute(@bind_params);
 
     my @rows;
     while (my $row = $sth->fetchrow_arrayref) {
