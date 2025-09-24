@@ -38,6 +38,14 @@ use Queries qw(
     get_hold_detail_sql
     get_inhouse_ids_sql
     get_inhouse_detail_sql
+    get_ordered_items_ids_sql
+    get_ordered_items_detail_sql
+    get_requested_holds_ids_sql
+    get_requested_holds_detail_sql
+    get_fulfilled_holds_ids_sql
+    get_fulfilled_holds_detail_sql
+    get_unfilled_holds_ids_sql
+    get_unfilled_holds_detail_sql
     );
 
 use Utils qw(read_config read_cmd_args check_config check_cmd_args write_data_to_file create_tar_gz);
@@ -192,10 +200,58 @@ my @inhouse = get_data(
 );
 my $inhouse_out_file = write_data_to_file("${prefix}_inhouse_${fdate}_${suffix}", \@inhouse, [qw/itemid barcode bibid checkout_date checkout_branch/], $conf->{tempdir});
 
+# Process Ordered Items (no date filtering; always returns all results for matching orgs)
+my @ordereditems = get_data(
+    'ordereditems',
+    get_ordered_items_ids_sql($full, $pgLibs),
+    get_ordered_items_detail_sql()
+);
+my $ordered_out_file = write_data_to_file("${prefix}_ordereditems_${fdate}_${suffix}", \@ordereditems, 
+    [qw/bibliographicrecordid numberofcopies reportdate assignedbranchabbr/], $conf->{tempdir});
+
+# Process Requested Holds
+my @requestedholds = get_data(
+    'requestedholds',
+    get_requested_holds_ids_sql($full, $pgLibs),
+    get_requested_holds_detail_sql()
+);
+my $requested_holds_out_file = write_data_to_file(
+    "${prefix}_requestedholds_${fdate}_${suffix}",
+    \@requestedholds,
+    [qw/bibliographicrecordid holdrequestid transactionid pickuplocation requesteddate reportdate/],
+    $conf->{tempdir}
+);
+
+# Process Fulfilled Holds
+my @fulfilledholds = get_data(
+    'fulfilledholds',
+    get_fulfilled_holds_ids_sql($full, $pgLibs),
+    get_fulfilled_holds_detail_sql()
+);
+my $fulfilled_holds_out_file = write_data_to_file(
+    "${prefix}_fulfilledholds_${fdate}_${suffix}",
+    \@fulfilledholds,
+    [qw/bibliographicrecordid holdrequestid transactionid pickuplocation fulfilleddate reportdate/],
+    $conf->{tempdir}
+);
+
+# Process Unfilled Holds (fixed last 2 days window)
+my @unfilledholds = get_data(
+    'unfilledholds',
+    get_unfilled_holds_ids_sql($pgLibs),
+    get_unfilled_holds_detail_sql()
+);
+my $unfilled_holds_out_file = write_data_to_file(
+    "${prefix}_unfilledholds_${fdate}_${suffix}",
+    \@unfilledholds,
+    [qw/bibliographicrecordid holdrequestid requesteddate requestedpickuplocation/],
+    $conf->{tempdir}
+);
+
 ###########################
 # 7) Create tar.gz archive
 ###########################
-my @output_files = ($bib_out_file, $item_out_file, $circ_out_file, $patron_out_file, $hold_out_file, $inhouse_out_file);
+my @output_files = ($bib_out_file, $item_out_file, $circ_out_file, $patron_out_file, $hold_out_file, $inhouse_out_file, $ordered_out_file, $requested_holds_out_file, $fulfilled_holds_out_file, $unfilled_holds_out_file);
 my $archive_file;
 if ($conf->{compressoutput}) {
     $archive_file = create_tar_gz(\@output_files, $conf->{archive}, $conf->{filenameprefix}, $full);
@@ -268,6 +324,10 @@ unless ($no_email) {
         <li>Patrons: @{[scalar @patrons]}</li>
         <li>Holds: @{[scalar @holds]}</li>
         <li>Inhouse: @{[scalar @inhouse]}</li>
+        <li>OrderedItems: @{[scalar @ordereditems]}</li>
+        <li>RequestedHolds: @{[scalar @requestedholds]}</li>
+        <li>FulfilledHolds: @{[scalar @fulfilledholds]}</li>
+        <li>UnfilledHolds: @{[scalar @unfilledholds]}</li>
     </ul>
     <p>Thank you,<br>LibraryIQ Extract Script</p>
 </body>

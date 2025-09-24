@@ -17,6 +17,14 @@ our @EXPORT_OK = qw(
     get_hold_detail_sql
     get_inhouse_ids_sql
     get_inhouse_detail_sql
+    get_ordered_items_ids_sql
+    get_ordered_items_detail_sql
+    get_requested_holds_ids_sql
+    get_requested_holds_detail_sql
+    get_fulfilled_holds_ids_sql
+    get_fulfilled_holds_detail_sql
+    get_unfilled_holds_ids_sql
+    get_unfilled_holds_detail_sql
 );
 
 # ----------------------------------------------------------
@@ -321,6 +329,208 @@ sub get_inhouse_detail_sql {
        JOIN actor.org_unit aou_circ ON house.org_unit=aou_circ.id
        WHERE house.id IN (:id_list)
        AND house.use_time > ?
+    };
+}
+
+# ----------------------------------------------------------
+# get_ordered_items_ids_sql - Return SQL for fetching Ordered Item Detail IDs
+# ----------------------------------------------------------
+sub get_ordered_items_ids_sql {
+    my ($full, $pgLibs) = @_;
+    my $sql = qq{
+       SELECT ald.id
+       FROM acq.lineitem ali
+       JOIN acq.lineitem_detail ald ON ali.id = ald.lineitem
+       LEFT JOIN acq.purchase_order apo ON ali.purchase_order = apo.id
+       WHERE ali.state IN ('new', 'order-ready', 'on-order', 'pending-payment')
+         AND (apo.state IS NULL OR apo.state IN ('new', 'pending', 'on-order'))
+         AND ald.recv_time IS NULL
+         AND ali.eg_bib_id IS NOT NULL
+         AND ald.owning_lib IN ($pgLibs)
+    };
+    return $sql;
+}
+
+# ----------------------------------------------------------
+# get_ordered_items_detail_sql - Return SQL for fetching Ordered Items details
+# ----------------------------------------------------------
+sub get_ordered_items_detail_sql {
+    return q{
+        SELECT 
+            ali.eg_bib_id AS bibliographicrecordid,
+            COUNT(ald.id) AS numberofcopies,
+            TO_CHAR(NOW(), 'YYYY-MM-DD') AS reportdate,
+            aou.shortname AS assignedbranchabbr
+        FROM acq.lineitem ali
+        JOIN acq.lineitem_detail ald ON ali.id = ald.lineitem
+        LEFT JOIN acq.purchase_order apo ON ali.purchase_order = apo.id
+        LEFT JOIN actor.org_unit aou ON ald.owning_lib = aou.id
+        WHERE ald.id IN (:id_list)
+        GROUP BY ali.eg_bib_id, aou.shortname
+    };
+}
+
+# ----------------------------------------------------------
+# get_requested_holds_ids_sql - Return SQL for fetching Requested Hold IDs
+# ----------------------------------------------------------
+sub get_requested_holds_ids_sql {
+    my ($full, $pgLibs) = @_;
+    my $date_clause = $full
+        ? q{ hr.request_time >= (NOW() - INTERVAL '2 years') }
+        : q{ hr.request_time >= ? };
+
+    my $sql = qq{
+       SELECT hr.id
+       FROM action.hold_request hr
+       WHERE hr.pickup_lib IN ($pgLibs)
+         AND $date_clause
+         AND hr.request_time IS NOT NULL
+    };
+    return $sql;
+}
+
+# ----------------------------------------------------------
+# get_requested_holds_detail_sql - Return SQL for fetching Requested Hold details
+# ----------------------------------------------------------
+sub get_requested_holds_detail_sql {
+    return q{
+        SELECT 
+            CASE hr.hold_type
+                WHEN 'T' THEN hr.target
+                WHEN 'C' THEN acn.record
+                WHEN 'P' THEN bmp.record
+                ELSE hr.target
+            END AS bibliographicrecordid,
+            hr.id AS holdrequestid,
+            hr.id AS transactionid,
+            aou_pickup.shortname AS pickuplocation,
+            TO_CHAR(hr.request_time, 'YYYY-MM-DD HH24:MI:SS') AS requesteddate,
+            TO_CHAR(NOW(), 'YYYY-MM-DD') AS reportdate
+        FROM action.hold_request hr
+        LEFT JOIN actor.org_unit aou_pickup ON hr.pickup_lib = aou_pickup.id
+        LEFT JOIN asset.copy acp ON hr.hold_type = 'C' AND hr.target = acp.id
+        LEFT JOIN asset.call_number acn ON acp.call_number = acn.id
+        LEFT JOIN biblio.monograph_part bmp ON hr.hold_type = 'P' AND hr.target = bmp.id
+        WHERE hr.id IN (:id_list)
+        ORDER BY hr.request_time DESC
+    };
+}
+
+# ----------------------------------------------------------
+# get_fulfilled_holds_ids_sql - Return SQL for fetching Fulfilled Hold IDs
+# ----------------------------------------------------------
+sub get_fulfilled_holds_ids_sql {
+    my ($full, $pgLibs) = @_;
+    my $date_clause = $full
+        ? q{ hr.fulfillment_time >= (NOW() - INTERVAL '2 years') }
+        : q{ hr.fulfillment_time >= ? };
+
+    my $sql = qq{
+       SELECT hr.id
+       FROM action.hold_request hr
+       WHERE hr.pickup_lib IN ($pgLibs)
+         AND hr.target IS NOT NULL
+         AND hr.fulfillment_time IS NOT NULL
+         AND $date_clause
+    };
+    return $sql;
+}
+
+# ----------------------------------------------------------
+# get_fulfilled_holds_detail_sql - Return SQL for fetching Fulfilled Hold details
+# ----------------------------------------------------------
+sub get_fulfilled_holds_detail_sql {
+    return q{
+        SELECT 
+            CASE hr.hold_type
+                WHEN 'T' THEN hr.target
+                WHEN 'C' THEN acn.record
+                WHEN 'P' THEN bmp.record
+                ELSE hr.target
+            END AS bibliographicrecordid,
+            hr.id AS holdrequestid,
+            hr.id AS transactionid,
+            aou_pickup.shortname AS pickuplocation,
+            TO_CHAR(hr.fulfillment_time, 'YYYY-MM-DD HH24:MI:SS') AS fulfilleddate,
+            TO_CHAR(NOW(), 'YYYY-MM-DD') AS reportdate
+        FROM action.hold_request hr
+        LEFT JOIN actor.org_unit aou_pickup ON hr.pickup_lib = aou_pickup.id
+        LEFT JOIN asset.copy acp ON hr.hold_type = 'C' AND hr.target = acp.id
+        LEFT JOIN asset.call_number acn ON acp.call_number = acn.id
+        LEFT JOIN biblio.monograph_part bmp ON hr.hold_type = 'P' AND hr.target = bmp.id
+        WHERE hr.id IN (:id_list)
+        ORDER BY hr.fulfillment_time DESC
+    };
+}
+
+# ----------------------------------------------------------
+# get_unfilled_holds_ids_sql - Return SQL for fetching Unfilled Hold IDs (last 2 days)
+# ----------------------------------------------------------
+sub get_unfilled_holds_ids_sql {
+    my ($pgLibs) = @_;
+    my $sql = qq{
+       SELECT hr.id
+       FROM action.hold_request hr
+       WHERE hr.pickup_lib IN ($pgLibs)
+         AND hr.cancel_time IS NULL
+         AND (hr.expire_time IS NULL OR hr.expire_time > NOW())
+         AND hr.fulfillment_time IS NULL
+         AND (
+              (hr.hold_type = 'T' AND hr.request_time >= NOW() - INTERVAL '2 days')
+           OR (hr.hold_type = 'P' AND hr.request_time >= NOW() - INTERVAL '2 days')
+           OR (hr.hold_type = 'C' AND hr.request_time >= NOW() - INTERVAL '2 years')
+         )
+    };
+    return $sql;
+}
+
+# ----------------------------------------------------------
+# get_unfilled_holds_detail_sql - Return SQL for fetching Unfilled Hold details
+# ----------------------------------------------------------
+sub get_unfilled_holds_detail_sql {
+    return q{
+        (
+            SELECT hr.target AS bibliographicrecordid, hr.id AS holdrequestid,
+                   TO_CHAR(hr.request_time, 'YYYY-MM-DD HH24:MI:SS') AS requesteddate,
+                   aou.shortname AS requestedpickuplocation
+            FROM action.hold_request hr
+                JOIN actor.org_unit aou ON aou.id = hr.pickup_lib
+            WHERE hr.id IN (:id_list)
+              AND hr.hold_type = 'T' AND hr.cancel_time IS NULL
+              AND (hr.expire_time IS NULL OR hr.expire_time > NOW())
+              AND hr.fulfillment_time IS NULL
+              AND hr.request_time >= NOW() - INTERVAL '2 days'
+        )
+        UNION ALL
+        (
+            SELECT bmp.record AS bibliographicrecordid, hr.id AS holdrequestid,
+                   TO_CHAR(hr.request_time, 'YYYY-MM-DD HH24:MI:SS') AS requesteddate,
+                   aou.shortname AS requestedpickuplocation
+            FROM action.hold_request hr
+                JOIN actor.org_unit aou ON aou.id = hr.pickup_lib
+                JOIN biblio.monograph_part bmp ON hr.target = bmp.id
+            WHERE hr.id IN (:id_list)
+              AND hr.hold_type = 'P' AND hr.cancel_time IS NULL
+              AND (hr.expire_time IS NULL OR hr.expire_time > NOW())
+              AND hr.fulfillment_time IS NULL
+              AND hr.request_time >= NOW() - INTERVAL '2 days'
+        )
+        UNION ALL
+        (
+            SELECT acn.record AS bibliographicrecordid, hr.id AS holdrequestid,
+                   TO_CHAR(hr.request_time, 'YYYY-MM-DD HH24:MI:SS') AS requesteddate,
+                   aou.shortname AS requestedpickuplocation
+            FROM action.hold_request hr
+                JOIN actor.org_unit aou ON aou.id = hr.pickup_lib
+                JOIN asset.copy acp ON hr.target = acp.id
+                JOIN asset.call_number acn ON acp.call_number = acn.id
+            WHERE hr.id IN (:id_list)
+              AND hr.hold_type = 'C' AND hr.cancel_time IS NULL
+              AND (hr.expire_time IS NULL OR hr.expire_time > NOW())
+              AND hr.fulfillment_time IS NULL
+              AND hr.request_time >= NOW() - INTERVAL '2 years'
+        )
+        ORDER BY requesteddate DESC
     };
 }
 
