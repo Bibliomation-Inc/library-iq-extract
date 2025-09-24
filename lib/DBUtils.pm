@@ -91,7 +91,8 @@ sub fetch_data_by_ids {
     # Construct the placeholders for the ID list
     my $placeholders = join(',', ('?') x @$id_chunk);
     my $sql = $query;
-    $sql =~ s/:id_list/$placeholders/;  # Replace the :id_list token with the actual placeholders
+    # Replace EVERY occurrence of :id_list (some queries use it multiple times, e.g. unfilled holds UNION)
+    $sql =~ s/:id_list/$placeholders/g;
 
     my $sth = $dbh->prepare($sql);
     $sth->execute(@$id_chunk, @extra_params);
