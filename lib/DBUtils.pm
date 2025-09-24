@@ -107,22 +107,22 @@ sub fetch_data_by_ids {
 
     my @bind_params = (@bind_ids, @extra_params);
 
-    # Placeholder math / diagnostics
+    # Placeholder math / diagnostics (only log if mismatch)
     my $total_placeholders_in_sql = () = $sql =~ /\?/g;
     my $expected_id_placeholders  = $ids_in_chunk * ($occurrences || 1);
     my $expected_extra            = $total_placeholders_in_sql - $expected_id_placeholders;
     my $extra_params_supplied     = scalar @extra_params;
 
-    logmsg("DEBUG",
-        "fetch_data_by_ids: chunk_ids=$ids_in_chunk occurrences=$occurrences "
-        . "id_placeholders=$expected_id_placeholders total_placeholders_in_sql=$total_placeholders_in_sql "
-        . "expected_extra_placeholders=$expected_extra extra_params_supplied=$extra_params_supplied "
-        . "total_bind_params=" . scalar(@bind_params)
-    );
+    my $mismatch_extra = ($expected_extra != $extra_params_supplied);
+    my $mismatch_total = ($total_placeholders_in_sql != ($expected_id_placeholders + $extra_params_supplied));
 
-    if ($expected_extra != $extra_params_supplied) {
+    if ($mismatch_extra || $mismatch_total) {
         logmsg("DEBUG",
-            "Placeholder mismatch diagnostic: expected $expected_extra extra param(s) but got $extra_params_supplied"
+            "fetch_data_by_ids mismatch: chunk_ids=$ids_in_chunk occurrences=$occurrences "
+            . "expected_id_placeholders=$expected_id_placeholders total_placeholders_in_sql=$total_placeholders_in_sql "
+            . "expected_extra_placeholders=$expected_extra extra_params_supplied=$extra_params_supplied "
+            . "computed_total_bind_params=" . scalar(@bind_params)
+            . ($mismatch_total ? " (TOTAL PLACEHOLDER COUNT MISMATCH)" : "")
         );
     }
 
