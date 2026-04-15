@@ -1,5 +1,9 @@
 #!/usr/bin/perl
 
+# send backlog of missed files like this:
+# find archive -iname "libraryname*" -exec ./sftp_test.pl --config config/libraryname.conf --file {} \;
+# replace libraryname with the name of the config and matching filenames
+
 use strict;
 use warnings;
 use Getopt::Long;
@@ -11,7 +15,9 @@ use Utils qw(read_config);
 
 # Read command line arguments
 my $file_path;
-GetOptions("file=s" => \$file_path);
+my $config_file;
+
+GetOptions("file=s" => \$file_path, "config_file=s" => \$config_file);
 
 # Check if file path is provided
 if (!$file_path) {
@@ -19,7 +25,6 @@ if (!$file_path) {
 }
 
 # Read configuration file
-my $config_file = 'config/library_config.conf';
 my $conf = read_config($config_file);
 
 # Initialize logging
